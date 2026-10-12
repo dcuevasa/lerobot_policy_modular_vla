@@ -92,14 +92,21 @@ When `burn_overlays_into_recording: true`, the rollout stream burns telemetry di
 ## 4. Installation (Using `venv`)
 
 ```bash
-# 1. Create and activate a Python virtual environment
+# 1. Clone this repository
+git clone https://github.com/dcuevasa/lerobot_policy_modular_vla.git
+cd lerobot_policy_modular_vla
+
+# 2. Create and activate a Python virtual environment
 python3 -m venv .venv
 source .venv/bin/activate
 
-# 2. Install LeRobot and this plugin in editable mode
-pip install -e /workspaces/docs_tesis/lerobot
-pip install -e /workspaces/docs_tesis/submodules/lerobot-vision-detector
+# 3. Install LeRobot and this package in editable mode
+pip install --upgrade pip
+pip install git+https://github.com/huggingface/lerobot.git
 pip install -e .
+
+# (Optional) Install vision detector companion tool for camera streaming overlays:
+pip install git+https://github.com/dcuevasa/lerobot-vision-detector.git
 ```
 
 ---
@@ -195,9 +202,9 @@ policy.save_annotations("path/to/dataset")
 ### Visualizing with `lerobot-dataset-visualizer`
 The recorded annotations adhere to the schema required by [`lerobot-dataset-visualizer`](https://github.com/dcuevasa/lerobot-dataset-visualizer):
 ```bash
-# Launch the visualizer to inspect rollouts, subtask spans, and bounding boxes
-streamlit run /workspaces/docs_tesis/submodules/lerobot-dataset-visualizer/app.py \
-  -- --dataset-dir path/to/dataset
+# Clone and run the dataset visualizer
+git clone https://github.com/dcuevasa/lerobot-dataset-visualizer.git
+streamlit run lerobot-dataset-visualizer/app.py -- --dataset-dir path/to/dataset
 ```
 Features available in the visualizer:
 * **Plan Timeline:** Displays high-level VLM decomposition and reasoning.
@@ -207,7 +214,8 @@ Features available in the visualizer:
 ### Splitting Multi-Stage Datasets with `split_dataset.py`
 The generated `meta/lerobot_annotations.json` also includes legacy `subtasks` lists (`label`, `start`, `end`), making it directly compatible with [`FLAG-Embodied-data/split_dataset.py`](https://github.com/dcuevasa/FLAG-Embodied-data):
 ```bash
-python /workspaces/docs_tesis/submodules/FLAG-Embodied-data/split_dataset.py \
+# Partition composite demonstration episodes into micro-expert subtask datasets
+python path/to/FLAG-Embodied-data/split_dataset.py \
   --input-dataset path/to/dataset \
   --output-dir path/to/micro_expert_subtasks
 ```
