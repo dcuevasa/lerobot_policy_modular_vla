@@ -6,6 +6,10 @@ primary_camera_key: "observation.images.cam_high"
 burn_overlays_into_recording: true # Burns live bounding boxes and HUD onto output video
 verification_enabled: false
 
+# Dataset Annotations (outputs to meta/lerobot_annotations.json for visualizer & split_dataset.py)
+fps: 30.0
+annotations_dir: null # e.g. "data/eval_episodes" or null to save manually via policy.save_annotations()
+
 # 1. High-Level VLM Coordinator
 # Supported providers: "ollama", "openai", "gemini", "anthropic", "transformers", "mock"
 vlm:

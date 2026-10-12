@@ -1,5 +1,5 @@
-"""Comprehensive test suite for the Modular Hierarchical VLA Policy."""
-
+import json
+from pathlib import Path
 import numpy as np
 import pytest
 import torch
@@ -8,6 +8,7 @@ from lerobot_policy_modular_vla import (
     AffordanceConditioner,
     BoundingBox,
     AffordanceDetection,
+    DatasetAnnotationRecorder,
     DetectorConfig,
     MockAffordanceDetector,
     MockSkillPolicy,
@@ -199,3 +200,111 @@ def test_modular_vla_policy_end_to_end():
 
     text = policy.generate_text(batch)
     assert "Plan:" in text or len(text) > 0
+
+
+def test_dataset_annotation_recorder(tmp_path: Path):
+    from lerobot_policy_modular_vla.vlm.base import PlanResult, PlanStep
+
+    recorder = DatasetAnnotationRecorder(fps=30.0)
+    recorder.start_episode(episode_index=0)
+
+    # 1. Record plan
+    plan = PlanResult(
+        task="prepare coffee",
+        steps=[
+            PlanStep(step_index=0, skill_name="pick_mug", target_object="cup", max_steps=10),
+            PlanStep(step_index=1, skill_name="place_mug", target_object="coffee_machine", max_steps=10),
+        ],
+        reasoning="Pick then place",
+    )
+    recorder.record_plan(plan, timestamp=0.0)
+
+    # 2. Record subtask 1 and detection
+    recorder.record_subtask_start(plan.steps[0], timestamp=0.0)
+    det = AffordanceDetection(
+        id=1,
+        label="cup",
+        box=BoundingBox(ymin=0.2, xmin=0.3, ymax=0.5, xmax=0.6, normalized=True),
+        score=0.95,
+    )
+    recorder.record_affordance_detection(det, camera_key="observation.images.cam_high", timestamp=0.0)
+
+    # Step forward
+    for _ in range(15):
+        recorder.step()
+
+    # 3. Record subtask 2
+    recorder.record_subtask_start(plan.steps[1], timestamp=0.5)
+    for _ in range(15):
+        recorder.step()
+
+    # 4. Save and inspect JSON
+    saved_file = recorder.save_to_json(tmp_path)
+    assert saved_file.exists()
+    assert saved_file.name == "lerobot_annotations.json"
+
+    with open(saved_file, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    assert data["version"] == 2
+    assert "schema" in data
+    assert "0" in data["episodes"]
+    ep0 = data["episodes"]["0"]
+
+    atoms = ep0["atoms"]
+    assert len(atoms) >= 3
+    styles = [a["style"] for a in atoms]
+    assert "plan" in styles
+    assert "subtask" in styles
+    assert "vqa" in styles
+
+    # Check vqa bounding box tool call
+    vqa_atoms = [a for a in atoms if a["style"] == "vqa"]
+    assert len(vqa_atoms) == 1
+    tool_call = vqa_atoms[0]["tool_calls"][0]
+    assert tool_call["type"] == "bbox"
+    assert tool_call["label"] == "cup"
+    assert len(tool_call["box"]) == 4
+
+    # Check legacy subtasks for split_dataset.py
+    assert "subtasks" in ep0
+    subtasks = ep0["subtasks"]
+    assert len(subtasks) == 2
+    assert subtasks[0]["label"] == "pick_mug"
+    assert subtasks[1]["label"] == "place_mug"
+    assert subtasks[0]["start"] <= subtasks[0]["end"]
+
+
+def test_modular_vla_policy_annotations_e2e(tmp_path: Path):
+    config = ModularVLAConfig(
+        vlm=VLMConfig(provider="mock"),
+        detector=DetectorConfig(engine="mock"),
+        default_task="Prepare coffee",
+        annotations_dir=str(tmp_path),
+    )
+    for s in config.skills.values():
+        s["max_steps"] = 2
+
+    policy = ModularVLAPolicy(config)
+    policy.reset(episode_index=0)
+
+    batch = {
+        "observation.images.cam_high": torch.zeros((1, 3, 224, 224)),
+        "observation.state": torch.zeros((1, 6)),
+    }
+
+    for _ in range(6):
+        policy.select_action(batch)
+
+    # Save annotations
+    saved_path = policy.save_annotations()
+    assert saved_path.exists()
+
+    with open(saved_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    assert "0" in data["episodes"]
+    atoms = data["episodes"]["0"]["atoms"]
+    assert any(a["style"] == "plan" for a in atoms)
+    assert any(a["style"] == "subtask" for a in atoms)
+

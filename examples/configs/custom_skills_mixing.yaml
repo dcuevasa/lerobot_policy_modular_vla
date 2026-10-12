@@ -4,6 +4,8 @@
 default_task: "Pick the red block and place it inside the sorting container"
 primary_camera_key: "observation.images.cam_high"
 burn_overlays_into_recording: true
+fps: 30.0
+annotations_dir: null # e.g. "data/my_mixing_eval"
 
 # VLM Coordinator: OpenAI GPT-4o or Gemini
 vlm:

@@ -104,6 +104,10 @@ class ModularVLAConfig(PreTrainedConfig):
     # Subtask completion verification with VLM
     verification_enabled: bool = False
 
+    # Annotation Recording Settings (compatible with lerobot-dataset-visualizer & split_dataset.py)
+    fps: float = 30.0
+    annotations_dir: str | None = None
+
     # LeRobot Core Policy Specs
     n_obs_steps: int = 1
     action_dim: int = 6

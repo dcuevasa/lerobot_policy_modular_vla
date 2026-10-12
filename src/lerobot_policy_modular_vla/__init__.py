@@ -18,6 +18,7 @@ from .planner.coordinator import PlanCoordinator
 from .vlm.base import BaseVLMClient, PlanStep, PlanResult, VerificationResult
 from .vlm.mock_client import MockVLMClient
 from .vlm.factory import make_vlm_client
+from .annotations.recorder import DatasetAnnotationRecorder
 
 # Aliases for convenience
 HierarchicalVLAConfig = ModularVLAConfig
@@ -54,4 +55,6 @@ __all__ = [
     "PlanResult",
     "VerificationResult",
     "make_vlm_client",
+    # Annotations
+    "DatasetAnnotationRecorder",
 ]

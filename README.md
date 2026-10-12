@@ -148,23 +148,83 @@ print("Target affordance:", policy.latest_info["target_object"])
 
 ---
 
-## 6. Running the Coffee Pipeline Demo & Tests
+## 6. LeRobot CLI Integration & Execution
 
-### End-to-End Simulation Demo
-Executes a multi-subtask coffee workflow and outputs an annotated video with live HUD:
-```bash
-python examples/coffee_pipeline_demo.py
-```
-*(Video saved to `outputs/coffee_rollout_with_hud.mp4`).*
+The architecture is strictly integrated with LeRobot's official command-line interface. You do not need standalone evaluation or simulation scripts.
 
-### Test Suite
+### A. Policy Evaluation via LeRobot CLI
+Evaluate the modular policy using `lerobot-eval` or `lerobot-vision-eval`:
 ```bash
-pytest tests/test_modular_vla.py
+# Evaluate in simulation or on robot using a config file
+lerobot-eval \
+  --policy.type=modular_vla \
+  --policy.path=examples/configs/coffee_task.yaml \
+  --env.type=aloha \
+  --eval.n_episodes=5
+
+# Or with vision-detector overlay evaluation:
+lerobot-vision-eval \
+  --policy.type=modular_vla \
+  --policy.path=examples/configs/coffee_task.yaml
 ```
-*(Tests verify bounding boxes, perception detectors, affordance conditioning, HUD rendering, VLM planning, model swapper, CORAL switching option, and closed-loop policy execution).*
+
+### B. Live Recording & Bounding Box Overlays
+When recording robot demonstrations or evaluation rollouts:
+1. **Camera Stream Overlays:** With `burn_overlays_into_recording: true` (or when using `lerobot-vision-detector`), bounding boxes and the HUD are written directly into the MP4 video frames. Micro-experts trained on spatial affordances consume these frames.
+2. **Recorded Demonstrations:**
+```bash
+lerobot-record \
+  --robot.type=so100 \
+  --dataset.repo_id="username/so100-modular-eval" \
+  --dataset.save_video=true
+```
 
 ---
 
-## 7. License
+## 7. Dataset Annotations & Dataset Visualizer Integration
+
+During rollout execution, `ModularVLAPolicy` automatically records high-level plans, subtask execution intervals, and affordance bounding boxes in the official LeRobot v3.1 language atom format (`meta/lerobot_annotations.json`).
+
+### Saving Annotations
+Configure `annotations_dir` in your configuration or save programmatically:
+```python
+# Saves meta/lerobot_annotations.json inside the dataset directory
+policy.save_annotations("path/to/dataset")
+```
+
+### Visualizing with `lerobot-dataset-visualizer`
+The recorded annotations adhere to the schema required by [`lerobot-dataset-visualizer`](https://github.com/dcuevasa/lerobot-dataset-visualizer):
+```bash
+# Launch the visualizer to inspect rollouts, subtask spans, and bounding boxes
+streamlit run /workspaces/docs_tesis/submodules/lerobot-dataset-visualizer/app.py \
+  -- --dataset-dir path/to/dataset
+```
+Features available in the visualizer:
+* **Plan Timeline:** Displays high-level VLM decomposition and reasoning.
+* **Subtask Spans:** Shows active micro-expert execution intervals.
+* **Interactive Bounding Boxes:** Renders spatial affordance bounding boxes and labels synchronized with video frames.
+
+### Splitting Multi-Stage Datasets with `split_dataset.py`
+The generated `meta/lerobot_annotations.json` also includes legacy `subtasks` lists (`label`, `start`, `end`), making it directly compatible with [`FLAG-Embodied-data/split_dataset.py`](https://github.com/dcuevasa/FLAG-Embodied-data):
+```bash
+python /workspaces/docs_tesis/submodules/FLAG-Embodied-data/split_dataset.py \
+  --input-dataset path/to/dataset \
+  --output-dir path/to/micro_expert_subtasks
+```
+This enables automatically splitting composite tasks into atomic datasets for training individual micro-expert models (ACT, Diffusion, SmolVLA).
+
+---
+
+## 8. Running Tests
+
+Run the test suite using pytest in your virtual environment:
+```bash
+pytest tests/test_modular_vla.py
+```
+*(Tests verify bounding boxes, perception detectors, affordance conditioning, HUD rendering, VLM planning, model swapper, CORAL switching option, dataset annotation recording, and closed-loop policy execution).*
+
+---
+
+## 9. License
 
 Apache-2.0

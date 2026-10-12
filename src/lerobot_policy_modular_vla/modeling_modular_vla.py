@@ -1,12 +1,14 @@
 """Modular / Hierarchical VLA Policy implementation for LeRobot."""
 
 import logging
+from pathlib import Path
 from typing import Any
 import torch
 from torch import Tensor, nn
 
 from lerobot.policies.pretrained import PreTrainedPolicy
 
+from .annotations.recorder import DatasetAnnotationRecorder
 from .configuration_modular_vla import ModularVLAConfig
 from .perception.conditioning import AffordanceConditioner
 from .perception.detector import make_detector
@@ -90,7 +92,10 @@ class ModularVLAPolicy(PreTrainedPolicy):
             swapper=self.swapper,
         )
 
-        # 6. Initialize Master Plan Coordinator
+        # 6. Initialize Dataset Annotation Recorder (v3.1 & lerobot-dataset-visualizer compatible)
+        self.annotation_recorder = DatasetAnnotationRecorder(fps=config.fps)
+
+        # 7. Initialize Master Plan Coordinator
         self.coordinator = PlanCoordinator(
             vlm_client=self.vlm_client,
             detector=self.detector,
@@ -100,19 +105,52 @@ class ModularVLAPolicy(PreTrainedPolicy):
             primary_camera_key=config.primary_camera_key,
             burn_overlays_into_recording=config.burn_overlays_into_recording,
             verification_enabled=config.verification_enabled,
+            annotation_recorder=self.annotation_recorder,
         )
 
         # Set default task from config
         self.coordinator.set_task(config.default_task)
 
         # Tracking state
+        self._current_episode_index: int = 0
+        self._has_started: bool = False
         self.latest_info: dict[str, Any] = {}
 
-    def reset(self) -> None:
-        """Called whenever the robot or environment resets."""
-        self.coordinator.reset()
+    def reset(self, episode_index: int | None = None) -> None:
+        """Called whenever the robot or environment resets.
+
+        Args:
+            episode_index: Optional index of the episode. If omitted, increments sequentially.
+        """
+        if episode_index is not None:
+            self._current_episode_index = episode_index
+            self._has_started = True
+        elif self._has_started:
+            self._current_episode_index += 1
+        else:
+            self._has_started = True
+            self._current_episode_index = 0
+
+        self.coordinator.reset(episode_index=self._current_episode_index)
         self.coordinator.set_task(self.config.default_task)
         self.latest_info.clear()
+
+    def save_annotations(self, destination: str | Path | None = None) -> Path:
+        """Saves recorded plan, subtask, and affordance bounding box annotations.
+
+        Outputs meta/lerobot_annotations.json conforming to lerobot-dataset-visualizer
+        and split_dataset.py formats.
+
+        Args:
+            destination: Path to json file or dataset directory. If None, uses config.annotations_dir.
+
+        Returns:
+            Path to saved meta/lerobot_annotations.json file.
+        """
+        dest = destination or self.config.annotations_dir
+        if not dest:
+            raise ValueError("No destination path provided and config.annotations_dir is not set.")
+        return self.coordinator.save_annotations(dest)
 
     def set_task(self, task: str) -> None:
         """Sets or updates the natural language goal."""

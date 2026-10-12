@@ -1,10 +1,12 @@
 """High-Level Plan Coordinator and Control Loop Engine."""
 
 import logging
+from pathlib import Path
 from typing import Any
 import numpy as np
 import torch
 
+from ..annotations.recorder import DatasetAnnotationRecorder
 from ..perception.conditioning import AffordanceConditioner
 from ..perception.detector import BaseAffordanceDetector
 from ..perception.types import AffordanceDetection
@@ -28,6 +30,7 @@ class PlanCoordinator:
         primary_camera_key: str = "observation.images.cam_high",
         burn_overlays_into_recording: bool = True,
         verification_enabled: bool = False,
+        annotation_recorder: DatasetAnnotationRecorder | None = None,
     ):
         self.vlm_client = vlm_client
         self.detector = detector
@@ -37,6 +40,7 @@ class PlanCoordinator:
         self.primary_camera_key = primary_camera_key
         self.burn_overlays_into_recording = burn_overlays_into_recording
         self.verification_enabled = verification_enabled
+        self.annotation_recorder = annotation_recorder or DatasetAnnotationRecorder()
 
         # Dynamic Execution State
         self.current_task: str = ""
@@ -46,7 +50,7 @@ class PlanCoordinator:
         self.active_detection: AffordanceDetection | None = None
         self.status: str = "IDLE"  # "IDLE", "PLANNING", "EXECUTING", "VERIFYING", "COMPLETED"
 
-    def reset(self) -> None:
+    def reset(self, episode_index: int = 0) -> None:
         """Resets coordinator state for a new episode."""
         self.current_plan = None
         self.current_step_idx = 0
@@ -54,6 +58,8 @@ class PlanCoordinator:
         self.active_detection = None
         self.status = "IDLE"
         self.skill_router.reset()
+        if self.annotation_recorder:
+            self.annotation_recorder.start_episode(episode_index=episode_index)
 
     def set_task(self, task: str) -> None:
         """Sets or updates high-level instruction."""
@@ -88,12 +94,24 @@ class PlanCoordinator:
             self._update_active_detection(first_step)
             self.status = "EXECUTING"
             logger.info(f"[PlanCoordinator] Plan established ({len(plan.steps)} steps). Reasoning: {plan.reasoning}")
+
+            # Record plan and first subtask into LeRobot annotations schema
+            if self.annotation_recorder:
+                self.annotation_recorder.record_plan(plan)
+                self.annotation_recorder.record_subtask_start(first_step)
+                if self.active_detection:
+                    self.annotation_recorder.record_affordance_detection(
+                        self.active_detection, camera_key=self.primary_camera_key
+                    )
         else:
             self.status = "COMPLETED"
             logger.warning("[PlanCoordinator] VLM returned empty plan.")
 
     def step(self, batch: dict[str, torch.Tensor]) -> tuple[torch.Tensor, dict[str, Any]]:
         """Main control loop execution step."""
+        if self.annotation_recorder:
+            self.annotation_recorder.step()
+
         # Extract primary camera image
         image_tensor = self._get_primary_image(batch)
 
@@ -101,7 +119,6 @@ class PlanCoordinator:
         if self.current_plan is None or not self.current_plan.steps:
             self.plan_or_replan(image_tensor)
             if self.status == "COMPLETED" or not self.current_plan or not self.current_plan.steps:
-                # Return neutral zeros action
                 return self._neutral_action(batch), {"status": "COMPLETED"}
 
         # 2. Check if current skill subtask has completed
@@ -120,7 +137,6 @@ class PlanCoordinator:
             return self._neutral_action(batch), {"status": "COMPLETED"}
 
         # 3. Perception & Affordance Tracking
-        # Update detections on current frame
         candidate_labels = [active_step.target_object] if active_step.target_object else None
         self.latest_detections = self.detector.detect(image_tensor, candidate_labels=candidate_labels)
         self._update_active_detection(active_step)
@@ -152,9 +168,7 @@ class PlanCoordinator:
                 max_skill_steps=active_step.max_steps,
                 status=self.status,
             )
-            # If user requested visual overlay directly on recorded stream:
             if self.burn_overlays_into_recording:
-                # Convert vis_image (H, W, 3) uint8 back to tensor (B, 3, H, W) in batch
                 overlay_tensor = torch.from_numpy(vis_image).permute(2, 0, 1).to(
                     device=image_tensor.device, dtype=image_tensor.dtype
                 )
@@ -182,7 +196,7 @@ class PlanCoordinator:
         return action, info
 
     def _transition_next_step(self, image: torch.Tensor | np.ndarray) -> None:
-        """Transitions to the next plan step, verifying with VLM if enabled."""
+        """Transitions to next plan step and records subtask annotation."""
         if self.verification_enabled:
             self.status = "VERIFYING"
             active_step = self._get_current_step()
@@ -197,31 +211,41 @@ class PlanCoordinator:
             self._update_active_detection(next_step)
             self.status = "EXECUTING"
             logger.info(f"[PlanCoordinator] Advanced to step [{self.current_step_idx + 1}/{len(self.current_plan.steps)}]: '{next_step.skill_name}'.")
+
+            # Record subtask transition into LeRobot annotations schema
+            if self.annotation_recorder:
+                self.annotation_recorder.record_subtask_start(next_step)
+                if self.active_detection:
+                    self.annotation_recorder.record_affordance_detection(
+                        self.active_detection, camera_key=self.primary_camera_key
+                    )
         else:
             self.status = "COMPLETED"
             logger.info("[PlanCoordinator] All plan subtasks completed successfully.")
 
+    def save_annotations(self, destination: str | Path) -> Path:
+        """Saves recorded plan and subtask annotations to meta/lerobot_annotations.json."""
+        if not self.annotation_recorder:
+            raise RuntimeError("No annotation_recorder configured on PlanCoordinator.")
+        return self.annotation_recorder.save_to_json(destination)
+
     def _update_active_detection(self, step: PlanStep) -> None:
-        """Resolves which detection matches the current target affordance."""
         if not self.latest_detections:
             self.active_detection = None
             return
 
-        # 1. Match by target_detection_id if given
         if step.target_detection_id is not None:
             for det in self.latest_detections:
                 if det.id == step.target_detection_id:
                     self.active_detection = det
                     return
 
-        # 2. Match by target_object label
         target_name = (step.target_object or "").lower()
         for det in self.latest_detections:
             if target_name in det.label.lower() or det.label.lower() in target_name:
                 self.active_detection = det
                 return
 
-        # 3. Fallback to first available detection
         self.active_detection = self.latest_detections[0]
 
     def _get_current_step(self) -> PlanStep | None:
@@ -235,7 +259,6 @@ class PlanCoordinator:
         for k, v in batch.items():
             if "image" in k.lower() and isinstance(v, torch.Tensor):
                 return v
-        # Fallback dummy tensor
         dev = next((v.device for v in batch.values() if isinstance(v, torch.Tensor)), torch.device("cpu"))
         return torch.zeros((1, 3, 224, 224), device=dev)
 
