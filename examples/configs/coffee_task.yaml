@@ -1,0 +1,65 @@
+# Configuration for Modular Hierarchical VLA: Coffee Preparation Task
+# Plug-and-play LeRobot policy architecture
+
+default_task: "Prepara un café: agarra la taza y colócala en la cafetera"
+primary_camera_key: "observation.images.cam_high"
+burn_overlays_into_recording: true # Burns live bounding boxes and HUD onto output video
+verification_enabled: false
+
+# 1. High-Level VLM Coordinator
+# Supported providers: "ollama", "openai", "gemini", "anthropic", "transformers", "mock"
+vlm:
+  provider: "ollama"
+  model_name: "qwen2.5-vl:7b"
+  api_base: "http://localhost:11434"
+  temperature: 0.1
+  timeout: 30.0
+
+# 2. Visual Affordance Perception Detector
+# Supported engines: "yolo", "yolo_world", "yolo_seg", "mock"
+detector:
+  engine: "yolo_world"
+  model_name: "yolov8s-worldv2.pt"
+  conf_threshold: 0.25
+  mode: "bbox" # "bbox" or "seg"
+
+# 3. Model Swapping / Switching Strategy
+# - "swap_on_demand": loads active model checkpoint on GPU, frees previous (minimal VRAM footprint)
+# - "cache_all": keeps all policies resident in memory
+# - "lazy_load": loads policies as they are called
+# - "coral_switching": keeps base backbone frozen, dynamically switches only LoRA head
+swapping_strategy: "swap_on_demand"
+
+# 4. Catalogue of Specialized Micro-Experts (Micro-Models for Micro-Tasks)
+# The underlying skills are NOT instructed with semantic object labels,
+# but operate on spatial bounding boxes / segmentation crops.
+skills:
+  pick_mug:
+    name: "pick_mug"
+    description: "Grasps the mug highlighted in the bounding box/mask and lifts it"
+    policy_type: "act"
+    pretrained_path: "bendca61/so101-subtask-pick-mug"
+    target_concept: "cup"
+    max_steps: 85
+    conditioning_mode: "crop" # "crop", "bbox_overlay", "mask_overlay", "passthrough"
+    crop_margin: 0.15
+
+  place_mug:
+    name: "place_mug"
+    description: "Transfers the grasped mug and places it under the coffee machine dispenser"
+    policy_type: "act"
+    pretrained_path: "bendca61/so101-subtask-place-mug"
+    target_concept: "coffee_machine"
+    max_steps: 110
+    conditioning_mode: "crop"
+    crop_margin: 0.20
+
+  press_button:
+    name: "press_button"
+    description: "Extends end-effector and depresses the brewing switch"
+    policy_type: "act"
+    pretrained_path: "bendca61/so101-subtask-press-button"
+    target_concept: "button"
+    max_steps: 50
+    conditioning_mode: "crop"
+    crop_margin: 0.10

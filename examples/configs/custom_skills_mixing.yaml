@@ -1,0 +1,48 @@
+# Example Configuration: Mixing Different Architectures (ACT + Diffusion Policy)
+# and using OpenAI / Gemini with CORAL / LoRA Head Switching Option
+
+default_task: "Pick the red block and place it inside the sorting container"
+primary_camera_key: "observation.images.cam_high"
+burn_overlays_into_recording: true
+
+# VLM Coordinator: OpenAI GPT-4o or Gemini
+vlm:
+  provider: "openai" # or "gemini", "ollama"
+  model_name: "gpt-4o"
+  temperature: 0.1
+
+# Vision Affordance Detector
+detector:
+  engine: "yolo_world"
+  model_name: "yolov8s-worldv2.pt"
+  conf_threshold: 0.30
+
+# Strategy: "coral_switching" (keeps base backbone frozen on GPU, activates LoRA adapter)
+swapping_strategy: "coral_switching"
+
+# Mixing different skill policy architectures:
+skills:
+  # Skill 1: Trained with Action Chunking with Transformers (ACT)
+  reach_and_grasp:
+    name: "reach_and_grasp"
+    description: "Reaches out and grasps the targeted block in the bounding box"
+    policy_type: "act"
+    pretrained_path: "user/act-general-pick"
+    target_concept: "red block"
+    max_steps: 70
+    conditioning_mode: "crop"
+    crop_margin: 0.15
+    # Optional LoRA adapter for CORAL switching:
+    lora_adapter_path: "user/coral-lora-pick"
+
+  # Skill 2: Trained with Diffusion Policy (mixing architectures!)
+  transport_and_release:
+    name: "transport_and_release"
+    description: "Transports grasped object and releases it into the container"
+    policy_type: "diffusion" # Diffusion Policy instead of ACT!
+    pretrained_path: "user/diffusion-general-place"
+    target_concept: "sorting container"
+    max_steps: 90
+    conditioning_mode: "crop"
+    crop_margin: 0.25
+    lora_adapter_path: "user/coral-lora-place"

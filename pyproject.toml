@@ -1,0 +1,60 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lerobot_policy_modular_vla"
+version = "0.1.0"
+description = "Modular Hierarchical Mixture-of-Experts VLA Architecture for LeRobot: Plug-and-play VLM Orchestrator + Visual Affordance Conditioning + Specialized Micro-Experts."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+authors = [
+    { name = "SinfonIA UniAndes" }
+]
+keywords = [
+    "robotics",
+    "lerobot",
+    "vla",
+    "vlm",
+    "act",
+    "diffusion-policy",
+    "hierarchical-control",
+    "mixture-of-experts",
+    "embodied-ai"
+]
+dependencies = [
+    "numpy",
+    "torch",
+    "torchvision",
+    "pillow",
+    "requests",
+    "pyyaml",
+]
+
+[project.optional-dependencies]
+vlm = [
+    "httpx",
+    "openai>=1.0.0",
+    "google-genai>=0.1.0",
+    "anthropic>=0.18.0",
+]
+vision = [
+    "ultralytics>=8.3.0",
+    "opencv-python-headless",
+]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov",
+    "black",
+    "ruff",
+]
+all = [
+    "lerobot_policy_modular_vla[vlm,vision,dev]",
+]
+
+[project.entry-points."lerobot.policies"]
+modular_vla = "lerobot_policy_modular_vla:ModularVLAPolicy"
+
+[tool.setuptools.packages.find]
+where = ["src"]
