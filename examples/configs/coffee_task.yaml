@@ -1,7 +1,7 @@
 # Configuration for Modular Hierarchical VLA: Coffee Preparation Task
 # Plug-and-play LeRobot policy architecture
 
-default_task: "Prepara un café: agarra la taza y colócala en la cafetera"
+default_task: "Prepare coffee: grasp the mug and place it under the coffee machine"
 primary_camera_key: "observation.images.cam_high"
 burn_overlays_into_recording: true # Burns live bounding boxes and HUD onto output video
 verification_enabled: false

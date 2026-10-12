@@ -112,7 +112,7 @@ def test_mock_vlm_client_planning():
         {"name": "pick_mug", "description": "pick mug", "max_steps": 80},
         {"name": "place_mug", "description": "place mug", "max_steps": 100},
     ]
-    plan = client.generate_plan(task="prepara cafe", detected_objects=dets, available_skills=skills)
+    plan = client.generate_plan(task="prepare coffee", detected_objects=dets, available_skills=skills)
     assert len(plan.steps) >= 2
     assert plan.steps[0].skill_name == "pick_mug"
     assert plan.steps[1].skill_name == "place_mug"
@@ -174,7 +174,7 @@ def test_modular_vla_policy_end_to_end():
     config = ModularVLAConfig(
         vlm=VLMConfig(provider="mock"),
         detector=DetectorConfig(engine="mock"),
-        default_task="Prepara café con taza y cafetera",
+        default_task="Prepare coffee with cup and coffee machine",
         burn_overlays_into_recording=True,
     )
     # Shorten steps for quick test

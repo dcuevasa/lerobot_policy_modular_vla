@@ -1,41 +1,41 @@
 # LeRobot Modular Hierarchical VLA Policy (`lerobot_policy_modular_vla`)
 
-> **Arquitectura de "Cerebro Dividido" (*Divided Brain*):** Reemplazo modular y *plug-and-play* para VLAs monolíticos gigantes dentro del ecosistema [🤗 LeRobot](https://github.com/huggingface/lerobot).
+> **"Divided Brain" Architecture:** A modular, plug-and-play alternative to monolithic Vision-Language-Action (VLA) models within the [🤗 LeRobot](https://github.com/huggingface/lerobot) robotics ecosystem.
 
 ---
 
-## 1. Motivación y Concepto Central
+## 1. Motivation & Core Concept
 
-Los modelos **VLA (*Vision-Language-Action*) monolíticos** (como RT-2, OpenVLA, Octo, $\pi_0$, SmolVLA) agrupan la percepción visual completa, el razonamiento de alto nivel y el control motor continuo de bajo nivel en una sola red neuronal masiva. Esto presenta tres barreras críticas:
+Current state-of-the-art **monolithic Vision-Language-Action (VLA)** models (such as RT-2, OpenVLA, Octo, $\pi_0$, and SmolVLA) attempt to handle end-to-end perception, high-level semantic reasoning, and low-level continuous motor control inside a single dense neural network. In real-world robotic environments with accessible hardware, this presents three major bottlenecks:
 
-1. **Latencia y Cómputo Excesivo:** Dificultad para mantener bucles cerrados a 30–50 Hz en hardware accesible.
-2. **Olvido Catastrófico (*Catastrophic Forgetting*):** Adaptar el modelo a una nueva habilidad puede degradar severamente las habilidades previas.
-3. **Ambigüedad Visual:** Instrucciones en texto libre sufren distracciones ante fondos desordenados o múltiples objetos.
+1. **Severe Latency & Compute Footprint:** Executing multi-billion parameter models at 30–50 Hz requires industrial GPU clusters. Embedded systems suffer high latency and trajectory jitter.
+2. **Catastrophic Forgetting:** Fine-tuning or adapting a monolithic model to a new motor skill often degrades performance on previously mastered tasks due to shared weight updates.
+3. **Visual Ambiguity:** Natural language commands like *"pick the mug"* struggle in cluttered environments with multiple candidate objects and changing distractors.
 
-### La Solución: Un "AI MODEL" Modular en LeRobot
-Este paquete implementa la arquitectura descrita en la [Wiki de Tesis](https://github.com/dcuevasa/docs_tesis/wiki/Arquitectura-del-Sistema):
-* **Orquestador VLM (Nivel Alto):** Planifica la secuencia de subtareas atómicas y decide qué objeto manipular.
-* **Aislamiento Perceptual (Bounding Boxes y Máscaras):** El detector acota espacialmente el objeto objetivo. **Las políticas motoras no reciben el nombre semántico del objeto, sino que operan directamente sobre el recorte (*crop*) o máscara visual.**
-* **Micro-Expertos (Nivel Bajo):** Políticas ligeras y especializadas (ACT, Diffusion Policy, etc.) que ejecutan micro-tareas motoras precisas.
-* **Model Swapping Dinámico:** Se carga en memoria GPU únicamente el micro-modelo activo, garantizando bajo consumo de VRAM y protección estructural contra olvido catastrófico.
-* **Opción CORAL Switching:** Preparado para conmutación instantánea de cabezales LoRA manteniendo el *backbone* congelado.
-* **Superposición Visual en Grabaciones (HUD & Bboxes):** Quema en vivo la telemetría, el plan activo y las cajas envolventes directamente sobre el video grabado.
+### The Solution: A Modular "AI Model" in LeRobot
+This repository implements the hierarchical **Divided Brain** architecture:
+* **High-Level VLM Coordinator:** Interprets human goals, reasons over scene affordances, formulates a subtask execution plan, and supervises progress.
+* **Perceptual Affordance Grounding (Bounding Boxes & Masks):** Fast vision models (YOLOv8, YOLO-World open-vocabulary, or instance segmentation) localize objects of interest. **Crucially, the underlying motor skills are NOT instructed with semantic object labels; they receive visual crops or masks and are trained to interact with spatial affordances.**
+* **Specialized Micro-Experts:** Lightweight, focused motor policies (Action Chunking with Transformers - ACT, Diffusion Policy, etc.) executing discrete atomic motions.
+* **Dynamic Model Swapping:** The system loads only the active micro-expert into GPU memory, unloading previous checkpoints to guarantee zero catastrophic forgetting and minimal VRAM usage.
+* **CORAL / LoRA Head Switching Option:** Built-in extension point to keep a frozen shared backbone resident on GPU while switching only task-specific LoRA heads.
+* **Live Video Recording Overlays (HUD & Telemetry):** Bounding boxes, active subtask status, step count progress, and VLM reasoning are burned directly into recorded rollout streams.
 
 ---
 
-## 2. Compatibilidad Plug-and-Play con LeRobot
+## 2. Plug-and-Play Compatibility with LeRobot
 
-Este paquete implementa `PreTrainedPolicy` y `PreTrainedConfig`, registrándose automáticamente como plugin de tercera parte en LeRobot mediante el prefijo `lerobot_policy_`:
+This package implements LeRobot's `PreTrainedPolicy` and `PreTrainedConfig` standards, and registers itself as a third-party policy plugin via LeRobot's `lerobot_policy_` convention:
 
 ```python
 from lerobot.policies.factory import get_policy_class, make_policy
 from lerobot_policy_modular_vla import ModularVLAConfig, ModularVLAPolicy
 
-# Descubrimiento automático en el registro de LeRobot
-policy_cls = get_policy_class("modular_vla")  # o "hierarchical_vla"
+# Automatic discovery in LeRobot's policy registry
+policy_cls = get_policy_class("modular_vla")  # or "hierarchical_vla"
 ```
 
-Cualquier comando CLI de LeRobot puede invocar este modelo:
+It seamlessly integrates with standard LeRobot evaluation and rollout loops:
 ```bash
 lerobot-eval --policy.type=modular_vla ...
 lerobot-vision-eval --policy.type=modular_vla ...
@@ -43,71 +43,68 @@ lerobot-vision-eval --policy.type=modular_vla ...
 
 ---
 
-## 3. Características Principales
+## 3. Key Capabilities & Extensibility
 
-### A. Proveedores VLM Totalmente Intercambiables
-Cambiar el motor de razonamiento es cuestión de modificar dos parámetros (`provider` y `model_name`):
+### A. Easily Swappable VLM Providers
+Switching VLM reasoning engines is as simple as updating two parameters (`provider` and `model_name`):
 
-| Proveedor (`provider`) | Modelos Soportados | Endpoint / Configuración |
+| Provider (`provider`) | Supported Models | Configuration / Endpoint |
 | :--- | :--- | :--- |
 | **`ollama`** | `qwen2.5-vl:7b`, `llava`, `minicpm-v`, `llama3.2-vision` | `api_base: "http://localhost:11434"` (Local / Edge) |
-| **`openai`** | `gpt-4o`, `gpt-4o-mini`, vLLM, LiteLLM | `api_key: "sk-..."`, `api_base: "..."` |
-| **`gemini`** | `gemini-2.0-flash`, `gemini-1.5-flash` | `api_key: "..."` |
-| **`anthropic`** | `claude-3-5-sonnet-20241022`, `claude-3-5-haiku` | `api_key: "..."` |
+| **`openai`** | `gpt-4o`, `gpt-4o-mini`, vLLM, LiteLLM, Groq | `api_key: "sk-..."`, `api_base: "..."` |
+| **`gemini`** | `gemini-2.0-flash`, `gemini-1.5-flash` | `api_key: "..."` (Google Gemini API) |
+| **`anthropic`** | `claude-3-5-sonnet-20241022`, `claude-3-5-haiku` | `api_key: "..."` (Anthropic Claude API) |
 | **`transformers`** | `HuggingFaceTB/SmolVLM-Instruct`, `Qwen/Qwen2-VL-7B` | Local Hugging Face pipeline |
-| **`mock`** | Heurístico determinista offline | Sin API keys ni descarga de modelos (Tests / CI) |
+| **`mock`** | Deterministic rule-based planner | Fully offline, zero API keys (Tests / CI) |
 
-### B. Motores de Detección Visual y Acondicionamiento
-* **`yolo` / `yolov8`:** Bounding boxes con modelos estándar (`yolov8n.pt`, etc.).
-* **`yolo_world`:** Detección en vocabulario abierto (*Open-Vocabulary*) basada en texto de la tarea.
-* **`yolo_seg`:** Segmentación por instancias y máscaras píxel a píxel.
-* **Modos de acondicionamiento de observación:**
-  * `crop`: Recorta la imagen alrededor de la bounding box con margen configurable y la escala a la entrada de la micro-política.
-  * `mask_overlay`: Aplica la máscara atenuando el fondo para concentrar la atención.
-  * `bbox_overlay`: Traza la bounding box y cruz de fijación sobre los canales de entrada.
+### B. Pluggable Vision Affordance Detectors
+* **`yolo` / `yolov8`:** Standard bounding box detection (`yolov8n.pt`, etc.).
+* **`yolo_world`:** Open-vocabulary object detection conditioned on natural language queries (`yolov8s-worldv2.pt`).
+* **`yolo_seg`:** Instance segmentation providing pixel-accurate masks (`yolov8n-seg.pt`).
+* **Observation Conditioning Modes:**
+  * `crop`: Crops the camera frame around the target bounding box with configurable margin ratio and resizes to the micro-policy's input resolution.
+  * `mask_overlay`: Emphasizes object pixels while dimming or filtering out background context.
+  * `bbox_overlay`: Overlays bounding boxes and targeting crosshairs onto observation channels.
+  * `passthrough`: Passes the full observation frame alongside bounding box coordinate tensors.
 
-### C. Catálogo y Mezcla de Micro-Expertos
-Permite mezclar diferentes tipos de arquitectura por subtarea:
-* **Subtarea 1 (`pick_mug`):** Modelo **ACT** (*Action Chunking with Transformers*).
-* **Subtarea 2 (`place_mug`):** Modelo **Diffusion Policy**.
-* **Subtarea 3 (`press_button`):** Micro-modelo ACT ligero.
+### C. Mixing Different Micro-Expert Architectures
+The skills catalog allows mixing different policy types within the same task:
+* **Skill 1 (`pick_mug`):** ACT (*Action Chunking with Transformers*) model trained on object crops.
+* **Skill 2 (`place_mug`):** Diffusion Policy model specialized in spatial positioning.
+* **Skill 3 (`press_button`):** Lightweight ACT policy for switch activation.
 
-### D. Estrategias de Conmutación en Memoria
-* **`swap_on_demand` (Recomendado para bajo VRAM):** Solo 1 modelo activo en VRAM. Al terminar una subtarea, se libera la anterior (`torch.cuda.empty_cache()`) y se carga el siguiente micro-experto.
-* **`coral_switching` / `lora_switching` (Opción CORAL):** Mantiene un *backbone* base congelado en GPU y conmuta dinámicamente únicamente el adaptador LoRA o cabezal de acción específico de la subtarea.
-* **`cache_all` / `lazy_load`:** Mantiene los micro-modelos en memoria RAM/VRAM para transiciones ultra-rápidas si la memoria lo permite.
+### D. Memory Management & Swapping Strategies
+* **`swap_on_demand` (Default for Low VRAM):** Maintains only ONE policy in GPU memory. When a subtask finishes, the model is unloaded (`torch.cuda.empty_cache()`) and the next skill checkpoint is mounted from disk.
+* **`coral_switching` / `lora_switching` (CORAL Option):** Keeps a shared base backbone frozen on GPU and dynamically swaps only the lightweight task-specific LoRA adapter or action head.
+* **`cache_all` / `lazy_load`:** Keeps policies resident in memory for zero-latency transitions when RAM/VRAM permits.
 
-### E. Telemetría y Overlays en la Grabación de Video
-Al activar `burn_overlays_into_recording: true`, el frame grabado contiene en tiempo real:
-* Recuadro envolvente dinámico del objeto objetivo activo.
-* Cruz de centrado sobre la affordance.
-* Banner HUD superior:
-  * Meta global (`GOAL`).
-  * Subtarea activa (`PLAN [1/3]: Skill='pick_mug'`).
-  * Contador de horizonte y progreso (`HORIZON: 45/85 steps (52.9%)`).
-  * Estado del coordinador (`Status: EXECUTING`).
+### E. Live HUD & Bounding Box Video Recording Overlays
+When `burn_overlays_into_recording: true`, the rollout stream burns telemetry directly onto output video frames:
+* Highlighted green bounding box and targeting reticle for the active object affordance.
+* Top HUD banner:
+  * Overall goal instruction (`GOAL`).
+  * Current plan step (`PLAN [1/3]: Skill='pick_mug'`).
+  * Step countdown and execution horizon (`HORIZON: 45/85 steps (52.9%)`).
+  * Coordinator status (`Status: EXECUTING` / `Status: VERIFYING`).
 
 ---
 
-## 4. Instalación (usando `venv`)
-
-> [!NOTE]
-> Recuerda activar siempre tu entorno virtual (`source .venv/bin/activate`).
+## 4. Installation (Using `venv`)
 
 ```bash
-# 1. Crear e inicializar el entorno virtual
+# 1. Create and activate a Python virtual environment
 python3 -m venv .venv
 source .venv/bin/activate
 
-# 2. Instalar dependencias base de LeRobot y el plugin
+# 2. Install LeRobot and this plugin in editable mode
 pip install -e /workspaces/docs_tesis/lerobot
 pip install -e /workspaces/docs_tesis/submodules/lerobot-vision-detector
-pip install -e /workspaces/docs_tesis/lerobot_policy_modular_vla
+pip install -e .
 ```
 
 ---
 
-## 5. Ejemplo de Uso en Python
+## 5. Quickstart Example
 
 ```python
 import torch
@@ -118,49 +115,56 @@ from lerobot_policy_modular_vla import (
     DetectorConfig,
 )
 
-# 1. Configuración
+# 1. Configure the modular architecture
 config = ModularVLAConfig(
     vlm=VLMConfig(
-        provider="ollama",          # o "openai", "gemini", "mock"
+        provider="ollama",          # or "openai", "gemini", "mock"
         model_name="qwen2.5-vl:7b",
     ),
     detector=DetectorConfig(
         engine="yolo_world",
         model_name="yolov8s-worldv2.pt",
     ),
-    swapping_strategy="swap_on_demand",  # o "coral_switching"
-    default_task="Prepara un café: agarra la taza y colócala en la cafetera",
-    burn_overlays_into_recording=True,   # Quema overlays en la grabación
+    swapping_strategy="swap_on_demand",  # or "coral_switching"
+    default_task="Prepare coffee: grasp the mug and place it in the coffee machine",
+    burn_overlays_into_recording=True,   # Burn live HUD & bboxes onto video
 )
 
-# 2. Instanciación del Modelo
+# 2. Instantiate the policy
 policy = ModularVLAPolicy(config)
 policy.reset()
 
-# 3. Inferencia en Bucle Cerrado (compatible con robot.get_observation())
+# 3. Step the policy with robot camera observations
 batch = {
     "observation.images.cam_high": torch.zeros((1, 3, 224, 224)),
     "observation.state": torch.zeros((1, 6)),
 }
 
 action = policy.select_action(batch)
-print("Acción generada:", action.shape)
-print("Subtarea activa:", policy.latest_info["skill_name"])
-print("Frame con telemetría HUD:", policy.latest_info["visualized_frame"].shape)
+print("Action tensor shape:", action.shape)
+print("Active skill:", policy.latest_info["skill_name"])
+print("Target affordance:", policy.latest_info["target_object"])
 ```
 
 ---
 
-## 6. Ejecución del Demo y Tests
+## 6. Running the Coffee Pipeline Demo & Tests
 
-### Ejecutar Demo del Pipeline de Café
-Genera una simulación completa con 3 subtareas y guarda el video con HUD en `outputs/coffee_rollout_with_hud.mp4`:
+### End-to-End Simulation Demo
+Executes a multi-subtask coffee workflow and outputs an annotated video with live HUD:
 ```bash
-python lerobot_policy_modular_vla/examples/coffee_pipeline_demo.py
+python examples/coffee_pipeline_demo.py
 ```
+*(Video saved to `outputs/coffee_rollout_with_hud.mp4`).*
 
-### Ejecutar Suite de Tests
+### Test Suite
 ```bash
-pytest lerobot_policy_modular_vla/tests/test_modular_vla.py
+pytest tests/test_modular_vla.py
 ```
-*(Todos los 9 tests unitarios validan cajas envolventes, detector, visualizador HUD, planificador VLM, router de habilidades, conmutación CORAL y ejecución de política de extremo a extremo).*
+*(Tests verify bounding boxes, perception detectors, affordance conditioning, HUD rendering, VLM planning, model swapper, CORAL switching option, and closed-loop policy execution).*
+
+---
+
+## 7. License
+
+Apache-2.0

@@ -93,7 +93,7 @@ class ModularVLAConfig(PreTrainedConfig):
     swapping_strategy: str = "swap_on_demand"
 
     # Default task instruction
-    default_task: str = "Prepara un café: agarra la taza y colócala en la cafetera"
+    default_task: str = "Prepare coffee: grasp the mug and place it under the coffee machine"
 
     # Primary camera stream for VLM and detections
     primary_camera_key: str = "observation.images.cam_high"

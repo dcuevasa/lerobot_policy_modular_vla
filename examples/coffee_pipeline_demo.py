@@ -88,7 +88,7 @@ def run_coffee_demo(
         ),
         skills=skills,
         swapping_strategy=swapping_strategy,
-        default_task="Prepara un café: agarra la taza, colócala en la cafetera y presiona el botón",
+        default_task="Prepare coffee: grasp the mug, place it under the coffee machine and press the button",
         burn_overlays_into_recording=True,  # Burn HUD & detections onto output frames!
         primary_camera_key="observation.images.cam_high",
     )
